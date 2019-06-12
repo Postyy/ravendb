@@ -185,6 +185,8 @@ interface databaseCreatedEventArgs {
 
 type availableConfigurationSectionId =  "restore" | "legacyMigration" | "encryption" | "replication" | "path";
 
+type restoreSource = "serverLocal" | "cloud";
+
 interface availableConfigurationSection {
     name: string;
     id: availableConfigurationSectionId;
