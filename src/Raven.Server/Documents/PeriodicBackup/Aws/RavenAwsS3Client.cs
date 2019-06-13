@@ -500,6 +500,83 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
             }
         }
 
+        public async Task<IEnumerable<string>> ListObjects(string prefix, string delimiter, bool listFolders, string continuationToken = null)
+        {
+            var url = $"{GetUrl()}/?list-type=2";
+            if (prefix != null)
+                url += $"&prefix={prefix}";
+
+            if (delimiter != null)
+                url += $"&delimiter={delimiter}";
+
+            //url += $"&max-keys={10}";
+
+            if (continuationToken != null)
+                url += $"&continuation-token={Uri.EscapeDataString(continuationToken)}";
+
+            //var k = $"?list-type=2&prefix={prefix}";
+
+            var now = SystemTime.UtcNow;
+
+            var requestMessage = new HttpRequestMessage(HttpMethods.Get, url);
+            UpdateHeaders(requestMessage.Headers, now, null);
+
+            var headers = ConvertToHeaders(requestMessage.Headers);
+
+            var client = GetClient();
+            client.DefaultRequestHeaders.Authorization = CalculateAuthorizationHeaderValue(HttpMethods.Get, url, now, headers);
+
+            var response = await client.SendAsync(requestMessage, CancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return new List<string>();
+
+            if (response.IsSuccessStatusCode == false)
+                throw StorageException.FromResponseMessage(response);
+
+            var responseStream = await response.Content.ReadAsStreamAsync();
+            var listBucketResult = XDocument.Load(responseStream);
+            var ns = listBucketResult.Root.Name.Namespace;
+            var result = GetResult();
+
+            var isTruncated = listBucketResult.Root.Element(ns + "IsTruncated").Value;
+            if (isTruncated == "true")
+            {
+                var nextContinuationToken = listBucketResult.Root.Element(ns + "NextContinuationToken").Value;
+                var continuationResult = await ListObjects(prefix, delimiter, listFolders, nextContinuationToken);
+                result = result.Concat(continuationResult);
+            }
+
+            return result;
+
+            IEnumerable<string> GetResult()
+            {
+                if (listFolders)
+                {
+                    var commonPrefixes = listBucketResult.Root.Elements(ns + "CommonPrefixes");
+                    var isFirst = true;
+                    foreach (var commonPrefix in commonPrefixes)
+                    {
+                        if (isFirst)
+                        {
+                            if (commonPrefix.Value.Equals($"{prefix}/"))
+                                continue;
+
+                            isFirst = false;
+                        }
+
+                        yield return commonPrefix.Value;
+                    }
+                }
+
+                var contents = listBucketResult.Root.Descendants(ns + "Contents");
+                var keys = contents.Select(x => x.Element(ns + "Key")).ToList();
+                foreach (var key in keys)
+                {
+                    yield return key.Value;
+                }
+            }
+        }
+
         public async Task<Blob> GetObject(string key)
         {
             var url = $"{GetUrl()}/{key}";
