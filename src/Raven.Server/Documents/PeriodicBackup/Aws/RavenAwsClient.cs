@@ -98,7 +98,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
             var canonicalQueryString = query
                 .OrderBy(parameter => parameter.Key)
                 .Select(parameter => parameter.Value.Aggregate(string.Empty, (current, value) =>
-                    current + $"{parameter.Key}={value.Trim()}&"))
+                    current + $"{parameter.Key}={Uri.EscapeDataString(value.Trim())}&"))
                 .Aggregate(string.Empty, (current, parameter) => current + parameter);
 
             if (canonicalQueryString.EndsWith("&"))
