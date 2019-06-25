@@ -33,6 +33,9 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
         public RavenAwsS3Client(S3Settings s3Settings, Progress progress = null, CancellationToken? cancellationToken = null)
             : base(s3Settings, progress, cancellationToken)
         {
+            if (string.IsNullOrWhiteSpace(s3Settings.BucketName))
+                throw new ArgumentException("AWS Bucket name cannot be null or empty");
+
             _bucketName = s3Settings.BucketName;
         }
 
@@ -500,7 +503,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
             }
         }
 
-        public async Task<IEnumerable<string>> ListObjects(string prefix, string delimiter, bool listFolders, string continuationToken = null)
+        public async Task<IEnumerable<AwsObjectProperties>> ListObjects(string prefix, string delimiter, bool listFolders, string continuationToken = null)
         {
             var url = $"{GetUrl()}/?list-type=2";
             if (prefix != null)
@@ -528,7 +531,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
 
             var response = await client.SendAsync(requestMessage, CancellationToken);
             if (response.StatusCode == HttpStatusCode.NotFound)
-                return new List<string>();
+                return new List<AwsObjectProperties>();
 
             if (response.IsSuccessStatusCode == false)
                 throw StorageException.FromResponseMessage(response);
@@ -548,7 +551,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
 
             return result;
 
-            IEnumerable<string> GetResult()
+            IEnumerable<AwsObjectProperties> GetResult()
             {
                 if (listFolders)
                 {
@@ -564,16 +567,44 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
                             isFirst = false;
                         }
 
-                        yield return commonPrefix.Value;
+                        yield return new AwsObjectProperties
+                    {
+                        File = commonPrefix.Value
+                    };
                     }
                 }
 
                 var contents = listBucketResult.Root.Descendants(ns + "Contents");
-                var keys = contents.Select(x => x.Element(ns + "Key")).ToList();
-                foreach (var key in keys)
+                foreach (var content in contents)
                 {
-                    yield return key.Value;
+                    var fullPath = content.Element(ns + "Key").Value;
+                    var key = GetFileName(fullPath);
+                    if (fullPath.EndsWith("/", StringComparison.OrdinalIgnoreCase))
+                        continue; // folder
+
+                    if (BackupLocationDegree(fullPath) - BackupLocationDegree(prefix) > 2)
+                        continue;// backup not in current folder or in sub folder
+
+                    yield return new AwsObjectProperties
+                    {
+                        File = GetFileName(key),
+                        PathToFile = GetFolderName(fullPath),
+                        LastModified = Convert.ToDateTime(content.Element(ns + "LastModified").Value)
+                    };
                 }
+            }
+
+            int BackupLocationDegree(string path)
+            {
+                var length = path.Length;
+                var count = 0;
+                for (int n = length - 1; n >= 0; n--)
+                {
+                    if (path[n] == '/')
+                        count++;
+                }
+
+                return count;
             }
         }
 
@@ -635,6 +666,16 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
             return $"{baseUrl}/{_bucketName}";
         }
 
+        private string GetFileName(string fullPath)
+        {
+            return fullPath.Split('/').Last();
+        }
+
+        private string GetFolderName(string fullPath)
+        {
+            return fullPath.Replace(fullPath.Substring(fullPath.LastIndexOf('/')), "");
+        }
+
         public override string GetHost()
         {
             if (AwsRegion == DefaultRegion || IsRegionInvariantRequest)
@@ -655,5 +696,12 @@ namespace Raven.Server.Documents.PeriodicBackup.Aws
             AwsRegion = regionToUse;
             return new DisposableAction(() => AwsRegion = oldRegion);
         }
+    }
+
+    public class AwsObjectProperties
+    {
+        public string File { get; set; }
+        public string PathToFile { get; set; }
+        public DateTime LastModified { get; set; }
     }
 }
