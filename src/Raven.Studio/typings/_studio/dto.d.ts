@@ -187,6 +187,10 @@ type availableConfigurationSectionId =  "restore" | "legacyMigration" | "encrypt
 
 type restoreSource = "serverLocal" | "cloud";
 
+interface restoreTypeAware {
+    Type: Raven.Client.Documents.Operations.Backups.RestoreType;
+}
+
 interface availableConfigurationSection {
     name: string;
     id: availableConfigurationSectionId;
