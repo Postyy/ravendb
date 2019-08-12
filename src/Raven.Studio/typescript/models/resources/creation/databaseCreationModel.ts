@@ -71,6 +71,7 @@ class databaseCreationModel {
         source: ko.observable<restoreSource>("serverLocal"),
         backupLink: ko.observable<string>(),
         cloudCredentials: ko.observable<string>(),
+        remoteFolderName: ko.observable<string>(),
         backupDirectory: ko.observable<string>().extend({ throttle: 500 }),
         backupDirectoryError: ko.observable<string>(null),
         lastFailedBackupDirectory: null as string,
@@ -91,7 +92,9 @@ class databaseCreationModel {
         skipIndexes: ko.observable<boolean>(false),
         requiresEncryption: undefined as KnockoutComputed<boolean>,
         backupEncryptionKey: ko.observable<string>(),
-        decodedS3Credentials: ko.observable<Raven.Client.Documents.Operations.Backups.S3Settings>()
+        decodedS3Credentials: ko.observable<Raven.Client.Documents.Operations.Backups.S3Settings>(),
+        azureCredentials: ko.observable<Raven.Client.Documents.Operations.Backups.AzureSettings>(),
+
     };
     
     restoreValidationGroup = ko.validatedObservable({ 
@@ -213,6 +216,12 @@ class databaseCreationModel {
             }
         });
         
+        this.restore.azureCredentials.subscribe((credentials) => {
+            if (this.restore.source() === "azure" && credentials) {
+                this.fetchRestorePoints(false);
+            }
+        });
+        
         this.restore.backupLink.subscribe(link => {
             this.downloadCloudCredentials(link);
         });
@@ -235,11 +244,12 @@ class databaseCreationModel {
                 return;
 
             const backupDirectory = this.restore.backupDirectory();
-            if (!this.restore.backupDirectory.isValid() &&
-                backupDirectory === this.restore.lastFailedBackupDirectory)
+            const remoteFolderName = this.restore.remoteFolderName();
+            if ((!this.restore.backupDirectory.isValid() && backupDirectory === this.restore.lastFailedBackupDirectory) &&
+                (!this.restore.remoteFolderName.isValid() && remoteFolderName === this.restore.lastFailedBackupDirectory))
                 return;
 
-            if (!backupDirectory)
+            if (!backupDirectory && remoteFolderName)
                 return;
 
             this.fetchRestorePoints(false);
@@ -350,6 +360,8 @@ class databaseCreationModel {
                 return getRestorePointsCommand.forServerLocal(this.restore.backupDirectory(), skipReportingError);
             case "cloud":
                 return getRestorePointsCommand.forS3Backup(this.restore.decodedS3Credentials(), skipReportingError);
+            case "azure":
+                return getRestorePointsCommand.forAzureBackup(this.restore.azureCredentials(), skipReportingError);
         }
     }
     
