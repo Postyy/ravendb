@@ -174,18 +174,23 @@ namespace Raven.Server.Web.Studio
                         if (string.IsNullOrWhiteSpace(googleCloudSettings.BucketName) ||
                             string.IsNullOrWhiteSpace(googleCloudSettings.GoogleCredentialsJson))
                             break;
-
+                  
                         using (var client = new RavenGoogleCloudClient(googleCloudSettings))
                         {
                             var folders = (await client.ListObjectsAsync(googleCloudSettings.RemoteFolderName));
+                            var requestedPathLength = googleCloudSettings.RemoteFolderName.Split('/').Length;
 
                             foreach (var folder in folders)
                             {
-                                var fullPath = folder.Name;
-                                if (string.IsNullOrWhiteSpace(fullPath))
+
+                                const char separator = '/';
+                                var splitted = folder.Name.Split(separator);
+                                var result = string.Join(separator, splitted.Take(requestedPathLength)) + separator;
+
+                                if (string.IsNullOrWhiteSpace(result))
                                     continue;
 
-                                folderPathOptions.List.Add(fullPath);
+                                folderPathOptions.List.Add(result);
                             }
                         }
                         break;

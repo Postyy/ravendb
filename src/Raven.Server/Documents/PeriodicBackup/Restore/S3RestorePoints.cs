@@ -22,7 +22,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Restore
         {
             path = path.TrimEnd('/');
 
-            var objects = await _client.ListAllObjects(path + "/", "/", true);
+            var objects = await _client.ListAllObjects(string.IsNullOrEmpty(path) ? "" : path + "/", "/", true);
             var folders = objects.Select(x => x.FullPath).ToList();
 
             if (folders.Count == 0)
